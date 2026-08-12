@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>跨期套利交易台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐸</text></svg>">
+<!--
+  ============================================================================
+  跨期套利 半自动交易管理页（前端）
+  后端约定（spread_server.py，待实现）：
+    GET  /api/snapshot                 → 完整快照 JSON（结构同下方 demoState）
+                       positions 为三视图：contract(单合约) / combo(配对成标准套利组合) /
+                       strategy(按自定义行情策略归集，带 watch_id)，归集拆解由后端完成
+    WS   /ws                           → 每 push_interval_sec 推送一次快照
+    POST /api/watch  {op:"add", kind:"single", leg_a}                  一腿 = 1 个标准套利组合合约
+                     {op:"add", kind:"dual", leg_a, leg_b}             两腿 = 2 个标准组合，组合价 = 腿A − 腿B
+                       leg 填组合代码(DCE.SP m2509&m2511)，或近&远 outright 对
+                       (DCE.m2509&DCE.m2511) 由后端 resolve_combo 解析成标准组合
+                     {op:"del", id}                                    删除
+                       行情行由后端附带费用字段(算自 futures_comm_info，逐合约表)：
+                       fee_today=一组开+平今总手续费, fee_overnight=一组开+隔夜平总手续费,
+                       tick_value=price_tick×乘数(1tick毛利)；一腿=两条outright腿费用和，
+                       两腿=两个组合(4条outright)费用和
+    POST /api/order  {symbol, direction:BUY/SELL, offset, volume, limit_price}   一腿普通限价单
+    POST /api/algo   {op:"create", kind:"single", symbol, direction, offset, volume,
+                      price, timeout, give_up_ticks}                   一腿被动到价算法单
+                     {op:"create", kind:"dual", leg_a, leg_b, passive_leg:"A"|"B",
+                      direction, offset, volume, price, timeout, give_up_ticks}
+                       两腿算法：被动腿按目标组合价挂单，每成交即对价发另一腿
+                       (买组合 = 买腿A + 卖腿B；卖组合反之)
+                     {op:"create", kind:"formula", watch_id, symbol, direction, volume,
+                      open_expr, close_expr, reprice_min_sec}
+                       公式条件单：开/平仓各一条条件公式。变量 bid/ask/last=本合约，
+                       bid(wN)/ask(wN)/last(wN)=行情行代码 wN；支持 + - * / 括号与
+                       > < >= <= 比较。公式成立期间自动维护本方挂单：
+                       对手价−本方价=1tick(无空价) → 排队在本方最优价；
+                       有空价位 → 挂本方价+1tick 插队；公式转不成立立即撤单。
+                       盘口移动时【跟随重挂】(撤单重挂到新本方最优/插队价)，
+                       重挂限频 reprice_min_sec 秒(默认3，防交易所流控/撤单费)；
+                       公式失效撤单不受限频约束，立即执行。
+                       开仓成交转持仓，平仓公式成立后按同规则挂平仓单(数量=已成交)。
+                       行情行代码 wN 由后端顺序分配且稳定不复用。
+                     {op:"cancel", algo_id}                            终止算法单
+    POST /api/cancel {order_id}        撤单（空=撤全部）
+    POST /api/chase  {order_id, ticks} 追单（撤后按对价±ticks重挂）
+  页面直接双击打开(file://) = 演示模式，用假数据自走，便于调样式。
+  ============================================================================
+-->
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#f5f6f7; --panel:#ffffff; --panel2:#f4f5f7; --border:#e8eaed;
+    --txt:#1f2329; --dim:#8b93a1; --accent:#c9d613; --brand:#edf65a; --cyan:#0d9488;
+    --up:#e5484d; --down:#0ca678; --gold:#d97706;
+  }
+  body { background:var(--bg); color:var(--txt); font-family:"Microsoft YaHei",Segoe UI,sans-serif;
+         font-size:13px; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-thumb { background:#d5d9e0; border-radius:3px; }
+
+  /* ---- 顶栏 ---- */
+  #topbar { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center;
+            gap:12px; background:var(--panel); }
+  #topbar h1 { font-size:18px; color:#111; }
+  #topbar h1 .hl { background:var(--brand); color:#111; padding:1px 6px; border-radius:6px; }
+  .pill { padding:3px 10px; border-radius:20px; font-size:11px; border:1px solid var(--border); background:var(--panel); }
+  .pill.ok { color:var(--down); border-color:#b7e4d3; background:#effaf5; }
+  .pill.bad { color:var(--up); border-color:#f6c6c8; background:#fdf1f1; }
+  .pill.warn { color:var(--gold); border-color:#f2d9ac; background:#fdf7ec; }
+  #topbar .spacer { flex:1; }
+  #clock { font-size:12px; color:var(--dim); }
+
+  /* ---- 主网格 ---- */
+  #content { flex:1; display:grid; gap:12px; padding:12px 16px; overflow:hidden;
+             grid-template-columns:minmax(360px,1.25fr) minmax(330px,1fr) minmax(330px,1fr);
+             grid-template-rows:minmax(0,1.15fr) minmax(0,1fr); }
+  #p-watch { grid-column:1; grid-row:1; }
+  #p-ticket { grid-column:2; grid-row:1; }
+  #p-algo  { grid-column:3; grid-row:1; }
+  #p-pos   { grid-column:1; grid-row:2; }
+  #p-ord   { grid-column:2; grid-row:2; }
+  #p-right2{ grid-column:3; grid-row:2; display:flex; flex-direction:column; gap:12px; min-height:0; }
+  #p-acct  { flex:0 0 auto; }
+  #p-log   { flex:1; min-height:0; }
+
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+           display:flex; flex-direction:column; overflow:hidden; min-height:0;
+           box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  .panel-h { padding:8px 14px; font-size:13.5px; font-weight:bold; color:#111;
+             border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;
+             background:linear-gradient(90deg,#f8fbdc,rgba(248,251,220,0) 55%); }
+  .panel-h::before { content:""; width:8px; height:8px; background:var(--accent); border-radius:50%;
+                     box-shadow:0 0 0 3px rgba(201,214,19,.18); flex:none; }
+  .panel-h .sub { font-weight:normal; font-size:11px; color:var(--dim); }
+  .panel-h .sp { flex:1; }
+  .panel-b { flex:1; overflow:auto; min-height:0; }
+
+  /* ---- 表格 ---- */
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { color:var(--dim); font-weight:normal; text-align:left; padding:6px 10px;
+       border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--panel); z-index:1; white-space:nowrap; }
+  td { padding:6px 10px; border-bottom:1px solid #f0f1f3; white-space:nowrap; }
+  .num { font-variant-numeric:tabular-nums; }
+  .up { color:var(--up); } .down { color:var(--down); } .dim { color:var(--dim); }
+  tr.q-row { cursor:pointer; }
+  tr.q-row:hover td { background:#f7f8f4; }
+  tr.q-row.sel td { background:#f6f9d4; }
+  .tag { font-size:10px; padding:1px 6px; border-radius:4px; border:1px solid; white-space:nowrap; }
+  .tag.dual { color:#1d4ed8; border-color:#d5e2fd; background:#eff4ff; }
+  .tag.single { color:#0f766e; border-color:#bfe8e2; background:#effaf8; }
+  .tag.long  { color:var(--up); border-color:#f6c6c8; background:#fdf1f1; }
+  .tag.short { color:var(--down); border-color:#b7e4d3; background:#effaf5; }
+
+  /* ---- 按钮 / 输入 ---- */
+  button { font-family:inherit; cursor:pointer; }
+  .btn { border:1px solid #d7dbe0; background:var(--panel); color:var(--txt);
+         border-radius:6px; padding:4px 10px; font-size:12px; }
+  .btn:hover { border-color:var(--accent); background:#fbfde4; }
+  .btn.mini { padding:1px 7px; font-size:11px; border-radius:5px; }
+  .btn.danger { color:var(--up); }
+  .btn.danger:hover { border-color:var(--up); background:#fdf1f1; }
+  .btn.primary { background:var(--brand); border-color:var(--accent); font-weight:bold; color:#111; }
+  .btn.primary:hover { filter:brightness(.97); }
+  input, select { font-family:inherit; background:var(--panel); border:1px solid #d7dbe0; color:var(--txt);
+                  border-radius:6px; padding:4px 8px; font-size:12px; outline:none; }
+  input:focus, select:focus { border-color:var(--accent); }
+  input.short { width:76px; }
+
+  /* ---- 行情添加表单 ---- */
+  #watch-add { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:8px 12px;
+               border-bottom:1px solid var(--border); background:#fafbf8; }
+  #watch-add .hint { font-size:11px; color:var(--dim); width:100%; }
+
+  /* ---- 下单面板 ---- */
+  #ticket-body { padding:10px 14px; display:flex; flex-direction:column; gap:9px; overflow:auto; }
+  .trow { display:flex; align-items:center; gap:8px; }
+  .trow .lbl { width:58px; color:var(--dim); font-size:12px; flex:none; }
+  .seg { display:flex; border:1px solid #d7dbe0; border-radius:6px; overflow:hidden; }
+  .seg button { border:none; background:var(--panel); padding:4px 12px; font-size:12px; color:var(--dim); }
+  .seg button.on { background:#f6f9d4; color:#111; font-weight:bold; }
+  .seg button.on.buy { background:#fdf1f1; color:var(--up); }
+  .seg button.on.sell { background:#effaf5; color:var(--down); }
+  .seg button:disabled { opacity:.4; cursor:not-allowed; }
+  #tk-symbol { font-weight:bold; font-size:13px; }
+  .px-chips { display:flex; gap:5px; }
+  .chip { border:1px solid #d7dbe0; background:var(--panel); border-radius:10px; padding:1px 8px; font-size:11px; color:var(--dim); }
+  .chip:hover { border-color:var(--accent); color:#111; }
+  .stepper { display:flex; align-items:center; }
+  .stepper button { width:24px; height:26px; border:1px solid #d7dbe0; background:var(--panel); font-size:14px; }
+  .stepper button:first-child { border-radius:6px 0 0 6px; }
+  .stepper button:last-child { border-radius:0 6px 6px 0; }
+  .stepper input { width:88px; border-radius:0; border-left:none; border-right:none; text-align:center; }
+  #algo-extra, #formula-extra { border:1px dashed #d7dbe0; border-radius:8px; padding:8px 10px;
+                display:flex; flex-direction:column; gap:8px; background:#fafbf8; }
+  #tk-submit { margin-top:2px; padding:8px 0; font-size:14px; border-radius:8px; }
+  #tk-submit.buy { background:var(--up); border-color:var(--up); color:#fff; }
+  #tk-submit.sell { background:var(--down); border-color:var(--down); color:#fff; }
+  #tk-warn { font-size:11px; color:var(--gold); }
+
+  /* ---- 算法单状态 ---- */
+  .st { font-size:10px; padding:1px 7px; border-radius:9px; }
+  .st.PENDING  { background:#fdf7ec; color:var(--gold); }
+  .st.WORKING  { background:#eff4ff; color:#1d4ed8; }
+  .st.FILLED   { background:#effaf5; color:var(--down); }
+  .st.PARTIAL  { background:#f7f2ff; color:#7c3aed; }
+  .st.TIMEOUT, .st.GAVE_UP, .st.CANCELED { background:#f2f3f5; color:var(--dim); }
+  .st.WAITING { background:#fdf7ec; color:var(--gold); }
+  .st.QUOTING_OPEN, .st.QUOTING_CLOSE { background:#eff4ff; color:#1d4ed8; }
+  .st.HOLDING { background:#f7f2ff; color:#7c3aed; }
+  .st.ALIVE    { background:#eff4ff; color:#1d4ed8; }
+  .st.FINISHED { background:#f2f3f5; color:var(--dim); }
+
+  /* ---- 账户 ---- */
+  #acct-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:2px 10px; padding:10px 14px; }
+  .acct-kv .k { font-size:11px; color:var(--dim); }
+  .acct-kv .v { font-size:14.5px; font-weight:bold; font-variant-numeric:tabular-nums; }
+  #risk-bar { grid-column:1 / -1; height:6px; border-radius:3px; background:#eef0f3; margin-top:4px; overflow:hidden; }
+  #risk-fill { height:100%; border-radius:3px; background:var(--down); width:0%; transition:width .4s; }
+
+  /* ---- 日志 ---- */
+  #log-body { padding:6px 12px; font-size:11.5px; line-height:1.75; font-family:Consolas,monospace; }
+  #log-body .t { color:var(--dim); margin-right:6px; }
+  #log-body .err { color:var(--up); }
+
+  .empty { padding:22px; text-align:center; color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>跨期<span class="hl">套利</span>交易台</h1>
+  <span id="conn-pill" class="pill warn">连接中…</span>
+  <span id="mode-pill" class="pill warn">--</span>
+  <span id="acct-pill" class="pill">--</span>
+  <div class="spacer"></div>
+  <span id="clock"></span>
+</div>
+
+<div id="content">
+
+  <!-- ============ 自定义行情 ============ -->
+  <div class="panel" id="p-watch">
+    <div class="panel-h">自定义行情 <span class="sub" id="watch-count"></span><span class="sp"></span></div>
+    <div id="watch-add">
+      <select id="wa-kind">
+        <option value="single">一腿(1个套利合约)</option>
+        <option value="dual">两腿(2个套利合约)</option>
+      </select>
+      腿A <input id="wa-lega" placeholder="DCE.SP m2509&m2511" style="width:168px">
+      <span id="wa-legb-in" style="display:none">
+        腿B <input id="wa-legb" placeholder="DCE.SP m2511&m2601" style="width:168px">
+      </span>
+      <button class="btn primary mini" id="wa-add">＋ 添加</button>
+      <div class="hint">腿 = 交易所标准套利组合(DCE.SP/CZCE.SPD/GFEX.SP)，也可填 近&远outright(如 DCE.m2509&DCE.m2511)由后端解析；两腿组合价 = 腿A − 腿B；点行情行带入下单面板。
+        费 = 一组(全部腿)开仓+平仓总手续费(平今/隔夜两口径，来自 futures_comm_info)；1tick值 = 价差动1tick毛利(标红=不够覆盖隔夜费)</div>
+    </div>
+    <div class="panel-b">
+      <table>
+        <thead><tr>
+          <th></th><th title="公式里用此代码引用该行情行">代码</th><th>合约</th><th>买量</th><th>买价</th><th>卖价</th><th>卖量</th>
+          <th>最新</th><th>涨跌</th><th>腿A最新</th><th>腿B最新</th>
+          <th title="一组开仓+平今的总手续费">费·平今</th>
+          <th title="一组开仓+隔夜平仓的总手续费">费·隔夜</th>
+          <th title="价差每动1tick的毛利=price_tick×乘数；净利=1tick值−费">1tick值</th><th></th>
+        </tr></thead>
+        <tbody id="watch-tb"></tbody>
+      </table>
+      <div class="empty" id="watch-empty" style="display:none">暂无行情，请在上方添加</div>
+    </div>
+  </div>
+
+  <!-- ============ 下单 ============ -->
+  <div class="panel" id="p-ticket">
+    <div class="panel-h">下单 <span class="sub">一腿=组合直发；两腿=腿A−腿B 走算法</span></div>
+    <div id="ticket-body">
+      <div class="trow"><span class="lbl">合约</span><span id="tk-symbol" class="dim">← 点左侧行情行选择</span></div>
+      <div class="trow" id="tk-legs" style="display:none"><span class="lbl"></span>
+        <span class="dim" id="tk-legs-txt" style="font-size:11px"></span></div>
+      <div class="trow"><span class="lbl">方向</span>
+        <div class="seg" id="tk-dir">
+          <button data-v="BUY" class="on buy">买入 / 买价差</button>
+          <button data-v="SELL">卖出 / 卖价差</button>
+        </div>
+      </div>
+      <div class="trow"><span class="lbl">开平</span>
+        <div class="seg" id="tk-offset">
+          <button data-v="OPEN" class="on">开仓</button>
+          <button data-v="CLOSE">平仓</button>
+          <button data-v="CLOSETODAY">平今</button>
+        </div>
+      </div>
+      <div class="trow" id="price-row"><span class="lbl">价格</span>
+        <div class="stepper">
+          <button id="tk-px-dn">−</button><input id="tk-price" value=""><button id="tk-px-up">＋</button>
+        </div>
+        <div class="px-chips">
+          <button class="chip" data-px="bid">买价</button>
+          <button class="chip" data-px="ask">卖价</button>
+          <button class="chip" data-px="last">最新</button>
+        </div>
+      </div>
+      <div class="trow"><span class="lbl">手数</span>
+        <div class="stepper">
+          <button id="tk-vol-dn">−</button><input id="tk-vol" value="1"><button id="tk-vol-up">＋</button>
+        </div>
+        <span class="dim" id="tk-maxvol"></span>
+      </div>
+      <div class="trow"><span class="lbl">模式</span>
+        <div class="seg" id="tk-mode">
+          <button data-v="limit" class="on">普通限价</button>
+          <button data-v="algo">被动到价</button>
+          <button data-v="formula">公式单</button>
+        </div>
+      </div>
+      <div id="algo-extra" style="display:none">
+        <div class="trow" id="dual-row" style="display:none"><span class="lbl">被动腿</span>
+          <div class="seg" id="tk-passive">
+            <button data-v="A" class="on">腿A</button>
+            <button data-v="B">腿B</button>
+          </div>
+          <span class="dim" style="font-size:11px">被动腿每成交即对价发另一腿</span>
+        </div>
+        <div class="trow"><span class="lbl">超时(秒)</span><input class="short" id="tk-timeout" value="60">
+          <span class="dim" style="font-size:11px">超时未成自动撤单</span></div>
+        <div class="trow"><span class="lbl">放弃tick</span><input class="short" id="tk-giveup" value="0">
+          <span class="dim" style="font-size:11px">价差走坏超 N tick 撤单，0=不启用</span></div>
+      </div>
+      <div id="formula-extra" style="display:none">
+        <div class="trow"><span class="lbl">开仓公式</span>
+          <input id="tk-open-expr" style="flex:1" placeholder="ask <= bid(w3) - 3"></div>
+        <div class="trow"><span class="lbl"></span>
+          <span id="open-expr-st" style="font-size:11px"></span></div>
+        <div class="trow"><span class="lbl">平仓公式</span>
+          <input id="tk-close-expr" style="flex:1" placeholder="bid >= (bid(w1)+bid(w3))/2 - 2"></div>
+        <div class="trow"><span class="lbl"></span>
+          <span id="close-expr-st" style="font-size:11px"></span></div>
+        <div class="trow"><span class="lbl">重挂间隔</span>
+          <input class="short" id="tk-reprice" value="3">
+          <span class="dim" style="font-size:11px">秒；盘口移动跟随重挂的最小间隔(限频防流控)</span></div>
+        <div class="dim" style="font-size:11px;line-height:1.6">
+          变量：bid/ask/last=本合约；bid(w1)/ask(w1)/last(w1)=对应代码的行情行；
+          支持 + − × ÷ 括号与 &gt; &lt; &gt;= &lt;=。公式成立期间自动挂单：
+          无空价→排队在本方最优价，有空价→本方价+1tick插队；盘口移动跟随重挂(按上方间隔限频)；
+          公式失效立即撤单(不受限频)。开仓成交转持仓，平仓公式成立再按同规则挂平仓单。</div>
+      </div>
+      <div id="tk-warn"></div>
+      <button class="btn primary buy" id="tk-submit">买入下单</button>
+    </div>
+  </div>
+
+  <!-- ============ 算法单 ============ -->
+  <div class="panel" id="p-algo">
+    <div class="panel-h">算法单 <span class="sub">被动到价 · 状态机</span><span class="sp"></span>
+      <button class="btn mini" id="algo-clear">清除已结束</button></div>
+    <div class="panel-b">
+      <table>
+        <thead><tr>
+          <th>合约</th><th>方向</th><th>目标价</th><th>成交/手数</th><th>状态</th><th>剩余</th><th></th>
+        </tr></thead>
+        <tbody id="algo-tb"></tbody>
+      </table>
+      <div class="empty" id="algo-empty" style="display:none">无算法单</div>
+    </div>
+  </div>
+
+  <!-- ============ 持仓（单合约/组合/策略 三视图） ============ -->
+  <div class="panel" id="p-pos">
+    <div class="panel-h">持仓 <span class="sub" id="pos-sub"></span><span class="sp"></span>
+      <div class="seg" id="pos-tabs">
+        <button data-v="contract" class="on">单合约</button>
+        <button data-v="combo">组合</button>
+        <button data-v="strategy">策略</button>
+      </div>
+    </div>
+    <div class="panel-b">
+      <table id="pos-t-contract">
+        <thead><tr>
+          <th>合约</th><th>方向</th><th>手数</th><th>可平</th><th>开仓均价</th><th>最新价</th>
+          <th>浮动盈亏</th><th>保证金</th><th></th>
+        </tr></thead>
+        <tbody id="pos-tb-contract"></tbody>
+      </table>
+      <table id="pos-t-combo" style="display:none">
+        <thead><tr>
+          <th>标准套利合约</th><th>方向</th><th>组数</th><th>开仓价差</th><th>最新价差</th>
+          <th>浮动盈亏</th><th></th>
+        </tr></thead>
+        <tbody id="pos-tb-combo"></tbody>
+      </table>
+      <table id="pos-t-strategy" style="display:none">
+        <thead><tr>
+          <th>策略(自定义行情)</th><th>方向</th><th>组数</th><th>开仓组合价</th><th>最新组合价</th>
+          <th>浮动盈亏</th><th></th>
+        </tr></thead>
+        <tbody id="pos-tb-strategy"></tbody>
+      </table>
+      <div class="empty" id="pos-empty" style="display:none">无持仓</div>
+    </div>
+  </div>
+
+  <!-- ============ 委托 ============ -->
+  <div class="panel" id="p-ord">
+    <div class="panel-h">委托管理 <span class="sub" id="ord-sub"></span><span class="sp"></span>
+      <label style="font-size:11px;color:var(--dim)"><input type="checkbox" id="ord-only-alive" checked> 只看未完成</label>
+      <button class="btn mini danger" id="ord-cancel-all">撤全部</button></div>
+    <div class="panel-b">
+      <table>
+        <thead><tr>
+          <th>时间</th><th>合约</th><th>方向</th><th>开平</th><th>价格</th><th>成交/手数</th><th>状态</th><th></th>
+        </tr></thead>
+        <tbody id="ord-tb"></tbody>
+      </table>
+      <div class="empty" id="ord-empty" style="display:none">无委托</div>
+    </div>
+  </div>
+
+  <!-- ============ 账户 + 日志 ============ -->
+  <div id="p-right2">
+    <div class="panel" id="p-acct">
+      <div class="panel-h">账户情况 <span class="sub" id="acct-broker"></span></div>
+      <div id="acct-grid">
+        <div class="acct-kv"><div class="k">账户权益</div><div class="v" id="ac-balance">--</div></div>
+        <div class="acct-kv"><div class="k">可用资金</div><div class="v" id="ac-available">--</div></div>
+        <div class="acct-kv"><div class="k">占用保证金</div><div class="v" id="ac-margin">--</div></div>
+        <div class="acct-kv"><div class="k">浮动盈亏</div><div class="v" id="ac-float">--</div></div>
+        <div class="acct-kv"><div class="k">平仓盈亏</div><div class="v" id="ac-close">--</div></div>
+        <div class="acct-kv"><div class="k">风险度</div><div class="v" id="ac-risk">--</div></div>
+        <div id="risk-bar"><div id="risk-fill"></div></div>
+      </div>
+    </div>
+    <div class="panel" id="p-log">
+      <div class="panel-h">日志<span class="sp"></span><button class="btn mini" id="log-clear">清空</button></div>
+      <div class="panel-b" id="log-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+/* ========================================================================== */
+/* 状态                                                                        */
+/* ========================================================================== */
+const S = {
+  conn: "connecting",          // connecting | live | demo | lost
+  snapshot: null,              // 后端快照
+  selQuoteId: null,            // 选中的行情行
+  dir: "BUY", offset: "OPEN", mode: "limit", passive: "A",
+  posTab: "contract",         // 持仓子页: contract | combo | strategy
+  logs: [],
+};
+const $ = id => document.getElementById(id);
+const fmt = (v, d=1) => (v === null || v === undefined || Number.isNaN(v)) ? "--"
+              : Number(v).toLocaleString("zh-CN", {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtPx = v => (v === null || v === undefined || Number.isNaN(v)) ? "--" : (+(+v).toFixed(3)).toString();
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function log(msg, err=false) {
+  const t = new Date().toTimeString().slice(0,8);
+  S.logs.push({t, msg, err});
+  if (S.logs.length > 300) S.logs.shift();
+  renderLogs();
+}
+/* 吸收后端日志（快照带 logs:[{seq,t,msg}]，按 seq 去重增量并入） */
+let srvSeen = 0;
+function absorbServerLogs(st) {
+  for (const l of st.logs || []) {
+    if (l.seq > srvSeen) {
+      srvSeen = l.seq;
+      S.logs.push({ t:l.t, msg:"[服务] " + l.msg, err:/失败|错误|异常|崩溃|无法/.test(l.msg) });
+    }
+  }
+  if (S.logs.length > 300) S.logs = S.logs.slice(-300);
+}
+
+/* ========================================================================== */
+/* 演示数据（file:// 或后端未启动时使用，便于离线调样式）                          */
+/* ========================================================================== */
+function demoState() {
+  return {
+    mode: "dry-run",                                  // dry-run | live
+    account_label: "广发期货 999229219",
+    max_volume: 10,
+    account: { balance: 512340.5, available: 396120.2, margin: 102300.0,
+               float_profit: 3120.0, close_profit: -880.0, risk_ratio: 0.20 },
+    watchlist: [
+      { id:"w1", kind:"single", symbol:"DCE.SP jm2609&jm2610", leg_a:"DCE.SP jm2609&jm2610", leg_b:null,
+        price_tick:0.5, bid:8.5, bid_vol:12, ask:9.5, ask_vol:9, last:9, change:0.5,
+        leg_a_last:9, leg_b_last:null, fee_today:36, fee_overnight:24, tick_value:30 },
+      { id:"w2", kind:"single", symbol:"DCE.SP jm2610&jm2611", leg_a:"DCE.SP jm2610&jm2611", leg_b:null,
+        price_tick:0.5, bid:-1.5, bid_vol:20, ask:-0.5, ask_vol:14, last:-1, change:-1,
+        leg_a_last:-1, leg_b_last:null, fee_today:36, fee_overnight:24, tick_value:30 },
+      { id:"w3", kind:"single", symbol:"DCE.SP jm2611&jm2612", leg_a:"DCE.SP jm2611&jm2612", leg_b:null,
+        price_tick:0.5, bid:1.5, bid_vol:7, ask:2.5, ask_vol:11, last:2, change:0,
+        leg_a_last:2, leg_b_last:null, fee_today:36, fee_overnight:24, tick_value:30 },
+      { id:"w4", kind:"dual", symbol:"SP jm2610&jm2611 − SP jm2611&jm2612",
+        leg_a:"DCE.SP jm2610&jm2611", leg_b:"DCE.SP jm2611&jm2612",
+        price_tick:0.5, bid:-4, bid_vol:7, ask:-2.5, ask_vol:9, last:-3, change:-1,
+        leg_a_last:-1, leg_b_last:2, fee_today:72, fee_overnight:48, tick_value:30 },
+    ],
+    /* 持仓三视图：后端负责 合约→组合→策略 的归集拆解，前端只渲染。
+       示例：策略 SP jm2610&jm2611 − SP jm2611&jm2612 开多1组
+       → 单合约 jm2610多1 / jm2611空2 / jm2612多1
+       → 组合   SP jm2610&jm2611 多1组 / SP jm2611&jm2612 空1组 */
+    positions: {
+      contract: [
+        { symbol:"DCE.jm2610", direction:"LONG",  volume:1, can_close:1,
+          open_price:1048.5, last_price:1050, float_profit:90, margin:12600 },
+        { symbol:"DCE.jm2611", direction:"SHORT", volume:2, can_close:2,
+          open_price:1051, last_price:1051, float_profit:0, margin:25200 },
+        { symbol:"DCE.jm2612", direction:"LONG",  volume:1, can_close:1,
+          open_price:1049, last_price:1049.5, float_profit:30, margin:12600 },
+      ],
+      combo: [
+        { symbol:"DCE.SP jm2610&jm2611", direction:"LONG",  volume:1,
+          open_price:-2.5, last_price:-1, float_profit:90 },
+        { symbol:"DCE.SP jm2611&jm2612", direction:"SHORT", volume:1,
+          open_price:2.5, last_price:2, float_profit:30 },
+      ],
+      strategy: [
+        { watch_id:"w4", symbol:"SP jm2610&jm2611 − SP jm2611&jm2612", direction:"LONG", volume:1,
+          open_price:-5, last_price:-3, float_profit:120 },
+      ],
+    },
+    orders: [
+      { order_id:"o1001", time:"14:02:11", symbol:"DCE.SP jm2610&jm2611", direction:"BUY", offset:"OPEN",
+        limit_price:-2, volume:2, volume_left:2, status:"ALIVE", last_msg:"已报入" },
+      { order_id:"o1000", time:"13:55:40", symbol:"DCE.SP jm2609&jm2610", direction:"SELL", offset:"OPEN",
+        limit_price:9.5, volume:1, volume_left:0, status:"FINISHED", last_msg:"全部成交" },
+    ],
+    algos: [
+      { algo_id:"a1", kind:"single", symbol:"DCE.SP jm2610&jm2611", direction:"BUY", target_price:-2.5,
+        volume:2, filled:0, status:"WORKING", remain_sec:37 },
+      { algo_id:"a2", kind:"dual", symbol:"SP jm2610&jm2611 − SP jm2611&jm2612", direction:"SELL", target_price:-2,
+        volume:1, filled:1, status:"FILLED", remain_sec:0 },
+      { algo_id:"a3", kind:"formula", symbol:"DCE.SP jm2610&jm2611", direction:"BUY",
+        volume:2, filled:0, status:"QUOTING_OPEN", remain_sec:null,
+        open_expr:"ask <= bid(w3) - 3", close_expr:"bid >= (bid(w1)+bid(w3))/2 - 2" },
+    ],
+  };
+}
+function demoTick() {
+  if (S.conn !== "demo" || !S.snapshot) return;
+  for (const q of S.snapshot.watchlist) {
+    if (Math.random() < 0.6) continue;
+    const t = q.price_tick || 1, jump = (Math.random() < 0.5 ? -1 : 1) * t;
+    q.bid += jump; q.ask += jump; q.last = Math.random() < 0.5 ? q.bid : q.ask;
+    q.change += jump;
+    q.bid_vol = Math.max(1, q.bid_vol + Math.round((Math.random()-0.5)*6));
+    q.ask_vol = Math.max(1, q.ask_vol + Math.round((Math.random()-0.5)*6));
+    if (q.leg_a_last != null) { q.leg_a_last += jump; }
+  }
+  const a = S.snapshot.algos.find(x => x.status === "WORKING");
+  if (a && a.remain_sec > 0) a.remain_sec--;
+  renderAll();
+}
+
+/* ========================================================================== */
+/* 连接：WS 优先，失败回退演示模式                                              */
+/* ========================================================================== */
+function setConn(c) {
+  S.conn = c;
+  const p = $("conn-pill");
+  p.className = "pill " + (c === "live" ? "ok" : c === "demo" ? "warn" : "bad");
+  p.textContent = { connecting:"连接中…", live:"已连接", demo:"演示模式(未连后端)", lost:"连接断开,重试中…" }[c];
+}
+function connect() {
+  if (location.protocol === "file:") { enterDemo(); return; }
+  let opened = false;
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => { opened = true; setConn("live"); log("已连接后端"); };
+  ws.onmessage = ev => { S.snapshot = JSON.parse(ev.data); absorbServerLogs(S.snapshot); renderAll(); renderLogs(); };
+  ws.onclose = () => {
+    if (!opened && !S.snapshot) { enterDemo(); return; }   // 从未连上过 → 演示
+    setConn("lost"); setTimeout(connect, 2000);
+  };
+  ws.onerror = () => ws.close();
+}
+function enterDemo() {
+  setConn("demo"); S.snapshot = demoState();
+  log("后端未启动，进入演示模式（假数据）"); renderAll();
+}
+async function post(url, body) {
+  if (S.conn === "demo") { log(`[演示] ${url} ${JSON.stringify(body)}`); demoPost(url, body); return {ok:true}; }
+  try {
+    const r = await fetch(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.ok) log(`请求失败 ${url}: ${j.error || r.status}`, true);
+    return j;
+  } catch (e) { log(`请求异常 ${url}: ${e}`, true); return {ok:false}; }
+}
+/* 演示模式下模拟后端行为，让交互闭环可试 */
+function demoPost(url, b) {
+  const st = S.snapshot;
+  if (url === "/api/watch") {
+    if (b.op === "add") {
+      const id = "w" + ((st.watchlist || []).reduce((m, x) =>
+        Math.max(m, parseInt(String(x.id).slice(1)) || 0), 0) + 1);
+      const short = s => s.replace(/^[A-Z]+\./, "");
+      const sym = b.kind === "dual" ? `${short(b.leg_a)} − ${short(b.leg_b)}` : b.leg_a;
+      st.watchlist.push({ id, kind:b.kind, symbol:sym, leg_a:b.leg_a, leg_b:b.leg_b || null, price_tick:1,
+        bid:-10, bid_vol:5, ask:-8, ask_vol:5, last:-9, change:0,
+        leg_a_last:-9, leg_b_last: b.kind === "dual" ? 2 : null,
+        fee_today: b.kind === "dual" ? 72 : 36, fee_overnight: b.kind === "dual" ? 48 : 24, tick_value:30 });
+      log(`已添加行情 ${sym}`);
+    } else if (b.op === "del") {
+      st.watchlist = st.watchlist.filter(q => q.id !== b.id);
+    }
+  } else if (url === "/api/order") {
+    st.orders.unshift({ order_id:"o"+Date.now()%100000, time:new Date().toTimeString().slice(0,8),
+      symbol:b.symbol, direction:b.direction, offset:b.offset, limit_price:b.limit_price,
+      volume:b.volume, volume_left:b.volume, status:"ALIVE", last_msg:"已报入" });
+    log(`[演示] 限价单已报入 ${b.symbol} ${b.direction} ${b.volume}手 @${b.limit_price}`);
+  } else if (url === "/api/algo") {
+    if (b.op === "create")
+      st.algos.unshift({ algo_id:"a"+Date.now()%100000, kind:b.kind || "single",
+        symbol: b.symbol || `${b.leg_a.replace(/^[A-Z]+\./,"")} − ${b.leg_b.replace(/^[A-Z]+\./,"")}`,
+        direction:b.direction, target_price:b.price ?? null, volume:b.volume, filled:0,
+        status: b.kind === "formula" ? "WAITING" : "WORKING",
+        remain_sec: b.kind === "formula" ? null : b.timeout,
+        open_expr:b.open_expr, close_expr:b.close_expr });
+    else if (b.op === "cancel") {
+      const a = st.algos.find(x => x.algo_id === b.algo_id);
+      if (a && (a.status === "WORKING" || a.status === "PENDING")) a.status = "CANCELED";
+    }
+  } else if (url === "/api/cancel") {
+    for (const o of st.orders)
+      if ((!b.order_id || o.order_id === b.order_id) && o.status === "ALIVE")
+        { o.status = "FINISHED"; o.last_msg = "已撤单"; }
+  }
+  renderAll();
+}
+
+/* ========================================================================== */
+/* 渲染                                                                        */
+/* ========================================================================== */
+function renderAll() {
+  const st = S.snapshot; if (!st) return;
+  renderTop(st); renderWatch(st); renderTicket(st); renderAlgos(st);
+  renderPositions(st); renderOrders(st); renderAccount(st);
+}
+function renderTop(st) {
+  const mp = $("mode-pill");
+  if (st.mode === "live") { mp.className = "pill bad"; mp.textContent = "实盘"; }
+  else { mp.className = "pill ok"; mp.textContent = "DRY-RUN 模拟"; }
+  $("acct-pill").textContent = st.account_label || "--";
+}
+function renderWatch(st) {
+  const tb = $("watch-tb"); const list = st.watchlist || [];
+  $("watch-empty").style.display = list.length ? "none" : "";
+  $("watch-count").textContent = list.length ? `${list.length} 条` : "";
+  if (S.selQuoteId && !list.find(q => q.id === S.selQuoteId)) S.selQuoteId = null;
+  tb.innerHTML = list.map(q => {
+    const chCls = q.change > 0 ? "up" : q.change < 0 ? "down" : "dim";
+    return `<tr class="q-row ${q.id===S.selQuoteId?"sel":""}" data-id="${q.id}">
+      <td><span class="tag ${q.kind}">${q.kind === "dual" ? "两腿" : "一腿"}</span></td>
+      <td class="dim">${esc(q.id)}</td>
+      <td><b>${esc(q.symbol)}</b></td>
+      <td class="num dim">${q.bid_vol ?? "--"}</td>
+      <td class="num down"><b>${fmtPx(q.bid)}</b></td>
+      <td class="num up"><b>${fmtPx(q.ask)}</b></td>
+      <td class="num dim">${q.ask_vol ?? "--"}</td>
+      <td class="num"><b>${fmtPx(q.last)}</b></td>
+      <td class="num ${chCls}">${q.change > 0 ? "+" : ""}${fmtPx(q.change)}</td>
+      <td class="num dim">${fmtPx(q.leg_a_last)}</td>
+      <td class="num dim">${fmtPx(q.leg_b_last)}</td>
+      <td class="num dim">${fmt(q.fee_today, 1)}</td>
+      <td class="num dim">${fmt(q.fee_overnight, 1)}</td>
+      <td class="num ${q.tick_value != null && q.fee_overnight != null && q.tick_value < q.fee_overnight ? "up" : ""}">${fmt(q.tick_value, 1)}</td>
+      <td><button class="btn mini danger wa-del" data-id="${q.id}">✕</button></td>
+    </tr>`;
+  }).join("");
+}
+function selQuote() { return (S.snapshot?.watchlist || []).find(q => q.id === S.selQuoteId) || null; }
+/* 公式求值：变量 bid/ask/last(自身)、bid(wN)/ask(wN)/last(wN)；返回 {ok,value,sub,error} */
+function evalExpr(expr, selfQ) {
+  let s = String(expr).replace(/\s+/g, "")
+    .replace(/[−–]/g, "-").replace(/×/g, "*").replace(/÷/g, "/")
+    .replace(/（/g, "(").replace(/）/g, ")").replace(/＞/g, ">").replace(/＜/g, "<").replace(/＝/g, "=");
+  if (!s) return { ok:false, error:"公式为空" };
+  let err = null;
+  s = s.replace(/(bid|ask|last)(?:\((w\w+)\))?/g, (m, f, id) => {
+    const q = id ? (S.snapshot?.watchlist || []).find(x => x.id === id) : selfQ;
+    if (!q) { err = id ? `找不到行情行 ${id}` : "未选择合约"; return "NaN"; }
+    const v = q[f];
+    if (v === null || v === undefined || Number.isNaN(v)) { err = `${id || "本合约"}.${f} 无价`; return "NaN"; }
+    return `(${v})`;
+  });
+  if (err) return { ok:false, error:err };
+  if (!/^[-+*/().<>=0-9]+$/.test(s)) return { ok:false, error:"含不支持的字符(只允许 bid/ask/last(wN)、数字与 + - * / () > < >= <=)" };
+  try {
+    const v = Function(`"use strict";return (${s});`)();
+    if (typeof v !== "boolean") return { ok:false, error:"公式必须是一个比较式(含 > < >= <=)" };
+    return { ok:true, value:v, sub:s };
+  } catch (e) { return { ok:false, error:"语法错误" }; }
+}
+function updateExprBadges() {
+  const q = selQuote();
+  for (const [inId, stId] of [["tk-open-expr", "open-expr-st"], ["tk-close-expr", "close-expr-st"]]) {
+    const expr = $(inId).value.trim(), el = $(stId);
+    if (!expr) { el.textContent = ""; continue; }
+    const r = evalExpr(expr, q);
+    if (!r.ok) { el.textContent = "⚠ " + r.error; el.style.color = "var(--gold)"; }
+    else {
+      el.textContent = `当前${r.value ? "✓ 成立" : "✗ 不成立"}  代入: ${r.sub}`;
+      el.style.color = r.value ? "var(--down)" : "var(--dim)";
+    }
+  }
+}
+
+function renderTicket(st) {
+  const q = selQuote();
+  $("tk-symbol").textContent = q ? q.symbol : "← 点左侧行情行选择";
+  $("tk-symbol").className = q ? "" : "dim";
+  $("tk-maxvol").textContent = st.max_volume ? `风控上限 ${st.max_volume} 手` : "";
+  /* 两腿：显示腿构成，强制算法模式（无法单笔直发，公式单暂只支持一腿） */
+  const dual = !!(q && q.kind === "dual");
+  $("tk-legs").style.display = dual ? "" : "none";
+  if (dual) $("tk-legs-txt").textContent =
+    `买组合 = 买[${q.leg_a}] + 卖[${q.leg_b}]；卖组合反之`;
+  document.querySelector('#tk-mode button[data-v="limit"]').disabled = dual;
+  document.querySelector('#tk-mode button[data-v="formula"]').disabled = dual;
+  if (dual && S.mode !== "algo") { S.mode = "algo"; segSet("tk-mode", "algo"); }
+  $("dual-row").style.display = dual ? "" : "none";
+  $("algo-extra").style.display = S.mode === "algo" ? "" : "none";
+  $("formula-extra").style.display = S.mode === "formula" ? "" : "none";
+  $("price-row").style.display = S.mode === "formula" ? "none" : "";
+  if (S.mode === "formula") updateExprBadges();
+  const sub = $("tk-submit");
+  const buy = S.dir === "BUY";
+  sub.className = "btn primary " + (buy ? "buy" : "sell");
+  sub.textContent = S.mode === "formula" ? `启动公式单（先${buy ? "买" : "卖"}开）`
+                  : (buy ? "买入下单" : "卖出下单") + (S.mode === "algo" ? "（被动到价）" : "");
+  $("tk-warn").textContent = st.mode === "live" ? "⚠ 实盘模式：将发出真实委托" : "";
+}
+function renderAlgos(st) {
+  const list = st.algos || [];
+  $("algo-empty").style.display = list.length ? "none" : "";
+  $("algo-tb").innerHTML = list.map(a => {
+    const alive = ["WORKING", "PENDING", "WAITING", "QUOTING_OPEN", "HOLDING", "QUOTING_CLOSE"].includes(a.status);
+    const isFormula = a.kind === "formula";
+    const tgt = isFormula
+      ? `<span class="dim" title="开仓: ${esc(a.open_expr || "")}&#10;平仓: ${esc(a.close_expr || "")}">公式</span>`
+      : `<b>${fmtPx(a.target_price)}</b>`;
+    return `<tr>
+      <td><b>${esc(a.symbol)}</b>${a.kind === "dual" ? ' <span class="tag dual">两腿</span>'
+          : isFormula ? ' <span class="tag single">公式</span>' : ""}</td>
+      <td class="${a.direction==="BUY"?"up":"down"}">${a.direction==="BUY"?"买":"卖"}</td>
+      <td class="num">${tgt}</td>
+      <td class="num">${a.filled}/${a.volume}</td>
+      <td><span class="st ${a.status}">${algoStText(a.status)}</span></td>
+      <td class="num dim">${alive && a.remain_sec != null ? a.remain_sec + "s" : "--"}</td>
+      <td>${alive ? `<button class="btn mini danger algo-cancel" data-id="${a.algo_id}">终止</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+}
+const algoStText = s => ({ PENDING:"等待", WORKING:"挂单中", FILLED:"已成交", PARTIAL:"部分成交",
+                           TIMEOUT:"超时撤", GAVE_UP:"走坏放弃", CANCELED:"已终止",
+                           WAITING:"等待条件", QUOTING_OPEN:"开仓挂单", HOLDING:"持仓中",
+                           QUOTING_CLOSE:"平仓挂单" }[s] || s);
+function renderPositions(st) {
+  const pos = st.positions || {};
+  const tab = S.posTab;
+  ["contract", "combo", "strategy"].forEach(k =>
+    $("pos-t-" + k).style.display = k === tab ? "" : "none");
+  const list = pos[tab] || [];
+  $("pos-empty").style.display = list.length ? "none" : "";
+  $("pos-sub").textContent =
+    `合约${(pos.contract||[]).length} · 组合${(pos.combo||[]).length} · 策略${(pos.strategy||[]).length}`;
+  const dirTag = p => { const long = p.direction === "LONG";
+    return `<span class="tag ${long?"long":"short"}">${long?"多":"空"}</span>`; };
+  const fpCell = fp =>
+    `<td class="num ${fp>0?"up":fp<0?"down":"dim"}"><b>${fp>0?"+":""}${fmt(fp,0)}</b></td>`;
+  if (tab === "contract") {
+    $("pos-tb-contract").innerHTML = list.map(p => `<tr>
+      <td><b>${esc(p.symbol)}</b></td>
+      <td>${dirTag(p)}</td>
+      <td class="num">${p.volume}</td>
+      <td class="num dim">${p.can_close ?? p.volume}</td>
+      <td class="num">${fmtPx(p.open_price)}</td>
+      <td class="num">${fmtPx(p.last_price)}</td>
+      ${fpCell(p.float_profit)}
+      <td class="num dim">${fmt(p.margin,0)}</td>
+      <td><button class="btn mini pos-close" data-kind="contract" data-sym="${esc(p.symbol)}"
+           data-dir="${p.direction}" data-vol="${p.can_close ?? p.volume}">平仓</button></td>
+    </tr>`).join("");
+  } else if (tab === "combo") {
+    $("pos-tb-combo").innerHTML = list.map(p => `<tr>
+      <td><b>${esc(p.symbol)}</b></td>
+      <td>${dirTag(p)}</td>
+      <td class="num">${p.volume}</td>
+      <td class="num">${fmtPx(p.open_price)}</td>
+      <td class="num">${fmtPx(p.last_price)}</td>
+      ${fpCell(p.float_profit)}
+      <td><button class="btn mini pos-close" data-kind="combo" data-sym="${esc(p.symbol)}"
+           data-dir="${p.direction}" data-vol="${p.volume}">平仓</button></td>
+    </tr>`).join("");
+  } else {
+    $("pos-tb-strategy").innerHTML = list.map(p => `<tr>
+      <td><b>${esc(p.symbol)}</b></td>
+      <td>${dirTag(p)}</td>
+      <td class="num">${p.volume}</td>
+      <td class="num">${fmtPx(p.open_price)}</td>
+      <td class="num">${fmtPx(p.last_price)}</td>
+      ${fpCell(p.float_profit)}
+      <td><button class="btn mini pos-close" data-kind="strategy" data-wid="${esc(p.watch_id||"")}"
+           data-sym="${esc(p.symbol)}" data-dir="${p.direction}" data-vol="${p.volume}">平仓</button></td>
+    </tr>`).join("");
+  }
+}
+function renderOrders(st) {
+  const onlyAlive = $("ord-only-alive").checked;
+  let list = st.orders || [];
+  const aliveN = list.filter(o => o.status === "ALIVE").length;
+  if (onlyAlive) list = list.filter(o => o.status === "ALIVE");
+  $("ord-sub").textContent = `未完成 ${aliveN}`;
+  $("ord-empty").style.display = list.length ? "none" : "";
+  $("ord-tb").innerHTML = list.map(o => {
+    const buy = o.direction === "BUY";
+    const filled = o.volume - o.volume_left;
+    return `<tr>
+      <td class="dim">${o.time || ""}</td>
+      <td><b>${esc(o.symbol)}</b></td>
+      <td class="${buy?"up":"down"}">${buy?"买":"卖"}</td>
+      <td class="dim">${({OPEN:"开",CLOSE:"平",CLOSETODAY:"平今"})[o.offset] || o.offset}</td>
+      <td class="num"><b>${fmtPx(o.limit_price)}</b></td>
+      <td class="num">${filled}/${o.volume}</td>
+      <td><span class="st ${o.status}">${o.status==="ALIVE"?"未完成":"已完成"}</span>
+          <span class="dim" style="font-size:10px">${esc(o.last_msg || "")}</span></td>
+      <td>${o.status==="ALIVE" ? `<button class="btn mini danger ord-cancel" data-id="${o.order_id}">撤单</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+}
+function renderAccount(st) {
+  const a = st.account || {};
+  $("acct-broker").textContent = st.account_label || "";
+  $("ac-balance").textContent = fmt(a.balance, 0);
+  $("ac-available").textContent = fmt(a.available, 0);
+  $("ac-margin").textContent = fmt(a.margin, 0);
+  const f = a.float_profit, c = a.close_profit;
+  const set = (id, v) => { const el = $(id);
+    el.textContent = (v > 0 ? "+" : "") + fmt(v, 0);
+    el.className = "v " + (v > 0 ? "up" : v < 0 ? "down" : ""); };
+  set("ac-float", f); set("ac-close", c);
+  const r = a.risk_ratio ?? 0;
+  $("ac-risk").textContent = (r * 100).toFixed(1) + "%";
+  const fill = $("risk-fill");
+  fill.style.width = Math.min(100, r * 100) + "%";
+  fill.style.background = r > 0.8 ? "var(--up)" : r > 0.5 ? "var(--gold)" : "var(--down)";
+}
+function renderLogs() {
+  $("log-body").innerHTML = S.logs.slice().reverse().map(l =>
+    `<div class="${l.err?"err":""}"><span class="t">${l.t}</span>${esc(l.msg)}</div>`).join("");
+}
+
+/* ========================================================================== */
+/* 交互                                                                        */
+/* ========================================================================== */
+/* 行情添加 */
+$("wa-kind").onchange = () => {
+  $("wa-legb-in").style.display = $("wa-kind").value === "dual" ? "" : "none";
+};
+$("wa-add").onclick = () => {
+  const kind = $("wa-kind").value;
+  const leg_a = $("wa-lega").value.trim();
+  if (!leg_a) { log("请填写腿A（标准套利组合合约）", true); return; }
+  if (kind === "dual") {
+    const leg_b = $("wa-legb").value.trim();
+    if (!leg_b) { log("请填写腿B（标准套利组合合约）", true); return; }
+    post("/api/watch", { op:"add", kind, leg_a, leg_b });
+    $("wa-legb").value = "";
+  } else {
+    post("/api/watch", { op:"add", kind, leg_a });
+  }
+  $("wa-lega").value = "";
+};
+
+/* 表格事件委托 */
+document.addEventListener("click", e => {
+  const del = e.target.closest(".wa-del");
+  if (del) { post("/api/watch", { op:"del", id:del.dataset.id }); e.stopPropagation(); return; }
+  const row = e.target.closest("tr.q-row");
+  if (row) {
+    S.selQuoteId = row.dataset.id;
+    const q = selQuote();
+    if (q && $("tk-price").value === "") $("tk-price").value = fmtPx(q.last) === "--" ? "" : fmtPx(q.last);
+    renderAll(); return;
+  }
+  const oc = e.target.closest(".ord-cancel");
+  if (oc) { post("/api/cancel", { order_id: oc.dataset.id }); return; }
+  const ac = e.target.closest(".algo-cancel");
+  if (ac) { post("/api/algo", { op:"cancel", algo_id: ac.dataset.id }); return; }
+  const pc = e.target.closest(".pos-close");
+  if (pc) {   // 平仓：带入下单面板（按持仓视图匹配对应行情行）
+    const sym = pc.dataset.sym, kind = pc.dataset.kind;
+    const wl = S.snapshot.watchlist || [];
+    let q = null;
+    if (kind === "strategy")
+      q = wl.find(x => x.id === pc.dataset.wid) || wl.find(x => x.symbol === sym);
+    else if (kind === "combo")
+      q = wl.find(x => x.kind === "single" && (x.symbol === sym || x.leg_a === sym));
+    else
+      q = wl.find(x => x.symbol === sym);
+    if (q) S.selQuoteId = q.id;
+    else log(`${sym} 不在行情列表，请先添加对应行情再平仓`, true);
+    S.dir = pc.dataset.dir === "LONG" ? "SELL" : "BUY";   // 平多=卖, 平空=买
+    S.offset = "CLOSE";
+    segSet("tk-dir", S.dir); segSet("tk-offset", S.offset);
+    $("tk-vol").value = pc.dataset.vol;
+    renderAll(); return;
+  }
+});
+
+/* 分段按钮 */
+function segBind(id, cb) {
+  $(id).querySelectorAll("button").forEach(b => b.onclick = () => { segSet(id, b.dataset.v); cb(b.dataset.v); });
+}
+function segSet(id, v) {
+  $(id).querySelectorAll("button").forEach(b => {
+    b.className = b.dataset.v === v ? ("on" + (id==="tk-dir" ? (v==="BUY"?" buy":" sell") : "")) : "";
+  });
+}
+segBind("tk-dir", v => { S.dir = v; renderTicket(S.snapshot); });
+segBind("tk-offset", v => { S.offset = v; });
+segBind("tk-mode", v => { S.mode = v; renderTicket(S.snapshot); });
+$("tk-open-expr").oninput = updateExprBadges;
+$("tk-close-expr").oninput = updateExprBadges;
+segBind("tk-passive", v => { S.passive = v; });
+segBind("pos-tabs", v => { S.posTab = v; renderPositions(S.snapshot); });
+
+/* 价格/手数 步进 */
+function tickOf() { const q = selQuote(); return (q && q.price_tick) || 1; }
+$("tk-px-up").onclick = () => { $("tk-price").value = fmtPx((parseFloat($("tk-price").value) || 0) + tickOf()); };
+$("tk-px-dn").onclick = () => { $("tk-price").value = fmtPx((parseFloat($("tk-price").value) || 0) - tickOf()); };
+$("tk-vol-up").onclick = () => { $("tk-vol").value = (parseInt($("tk-vol").value) || 0) + 1; };
+$("tk-vol-dn").onclick = () => { $("tk-vol").value = Math.max(1, (parseInt($("tk-vol").value) || 2) - 1); };
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => {
+  const q = selQuote(); if (!q) return;
+  const v = { bid:q.bid, ask:q.ask, last:q.last }[c.dataset.px];
+  if (v !== null && v !== undefined) $("tk-price").value = fmtPx(v);
+});
+
+/* 提交 */
+$("tk-submit").onclick = () => {
+  const q = selQuote();
+  if (!q) { log("请先在行情列表选择合约", true); return; }
+  const vol = parseInt($("tk-vol").value);
+  if (!vol || vol < 1) { log("手数无效", true); return; }
+  const mx = S.snapshot.max_volume;
+  if (mx && vol > mx) { log(`手数 ${vol} 超风控上限 ${mx}`, true); return; }
+  const live = S.snapshot.mode === "live";
+  const dual = q.kind === "dual";
+
+  /* ---- 公式单（仅一腿） ---- */
+  if (S.mode === "formula" && !dual) {
+    const oe = $("tk-open-expr").value.trim(), ce = $("tk-close-expr").value.trim();
+    if (!oe || !ce) { log("开仓公式与平仓公式都必须填写", true); return; }
+    const r1 = evalExpr(oe, q), r2 = evalExpr(ce, q);
+    if (!r1.ok) { log("开仓公式错误: " + r1.error, true); return; }
+    if (!r2.ok) { log("平仓公式错误: " + r2.error, true); return; }
+    const desc = `${q.symbol}  公式单  先${S.dir === "BUY" ? "买" : "卖"}开 ${vol} 手\n` +
+                 `开仓: ${oe}\n平仓: ${ce}\n条件成立自动挂单(无空价排队/有空价插队)，失效撤单`;
+    if (!confirm((live ? "⚠ 实盘公式单确认 ⚠\n\n" : "公式单确认（模拟）\n\n") + desc)) return;
+    post("/api/algo", { op:"create", kind:"formula", watch_id:q.id, symbol:q.symbol,
+      direction:S.dir, volume:vol, open_expr:oe, close_expr:ce,
+      reprice_min_sec: parseFloat($("tk-reprice").value) || 3 });
+    return;
+  }
+
+  /* ---- 限价 / 被动到价 / 两腿 ---- */
+  const price = parseFloat($("tk-price").value);
+  if (Number.isNaN(price)) { log("请填写限价（防市价误单，必填）", true); return; }
+  const desc = `${q.symbol}  ${S.dir === "BUY" ? "买入" : "卖出"} ${vol} 手 @ ${price}  ` +
+               `${({OPEN:"开仓",CLOSE:"平仓",CLOSETODAY:"平今"})[S.offset]}` +
+               (dual ? `\n两腿算法：被动腿=${S.passive === "A" ? "腿A" : "腿B"}，成交后另一腿对价发出` :
+                S.mode === "algo" ? `（被动到价, 超时${$("tk-timeout").value}s）` : "");
+  if (!confirm((live ? "⚠ 实盘下单确认 ⚠\n\n" : "下单确认（模拟）\n\n") + desc)) return;
+  if (S.mode === "algo" || dual) {
+    const body = { op:"create", kind: dual ? "dual" : "single", direction:S.dir, offset:S.offset,
+      volume:vol, price, timeout:parseFloat($("tk-timeout").value) || 60,
+      give_up_ticks:parseFloat($("tk-giveup").value) || 0 };
+    if (dual) Object.assign(body, { leg_a:q.leg_a, leg_b:q.leg_b, passive_leg:S.passive });
+    else body.symbol = q.symbol;
+    post("/api/algo", body);
+  } else {
+    post("/api/order", { symbol:q.symbol, direction:S.dir, offset:S.offset, volume:vol, limit_price:price });
+  }
+};
+
+$("ord-cancel-all").onclick = () => { if (confirm("撤销全部未完成委托？")) post("/api/cancel", {}); };
+$("ord-only-alive").onchange = () => renderOrders(S.snapshot);
+$("algo-clear").onclick = () => {
+  if (S.conn === "demo")
+    S.snapshot.algos = S.snapshot.algos.filter(a =>
+      ["WORKING", "PENDING", "WAITING", "QUOTING_OPEN", "HOLDING", "QUOTING_CLOSE"].includes(a.status));
+  else post("/api/algo", { op:"clear_done" });
+  renderAll();
+};
+$("log-clear").onclick = () => { S.logs = []; renderLogs(); };
+
+/* 时钟 + 启动 */
+setInterval(() => { $("clock").textContent = new Date().toLocaleString("zh-CN", {hour12:false}); }, 1000);
+setInterval(demoTick, 1200);
+connect();
+</script>
+</body>
+</html>

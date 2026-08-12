@@ -62,7 +62,9 @@ def fetch_futures_comm_info(file=DEFAULT_FILE):
         raise SystemExit("config.ini [auth] 缺 user/password")
     api = TqApi(auth=TqAuth(user, pwd))
     try:
-        contracts = [x for x in sorted(api.query_quotes(ins_class="FUTURE", expired=False)) if "@" not in x]
+        import spread_monitor as _sm
+        contracts = [x for x in sorted(api.query_quotes(ins_class="FUTURE", expired=False))
+                     if "@" not in x and not _sm.is_settle_f(x)]   # F结算价合约排除
 
         def sym_of(contract):
             # 取合约代码的前导字母作品种代码，兼容3/4位月份与 'F' 等后缀(如 l2607F->l)
@@ -115,6 +117,7 @@ def fetch_futures_comm_info(file=DEFAULT_FILE):
 
     df = df_raw.copy()
     df["品种名称"], df["品种代码"], df["合约代码"] = zip(*df["合约品种"].apply(name))
+    df = df[~df["合约代码"].astype(str).str.contains(r"\d[Ff]$")]   # F结算价合约排除
     df = df[df["品种代码"].isin(exchange_dict)]    # 丢掉 TqSdk 查不到的(已下市等)
     df["交易所"] = df["品种代码"].map(exchange_dict)
     df["天勤代码"] = df["交易所"] + "." + df["合约代码"]

@@ -1,6 +1,6 @@
 ---
 name: all-product-trading-rules
-description: 中国期货全品种交易规则速查与 all_product_config 表维护。当需要查询或核对某期货品种的合约乘数(multiple)、最小变动价位(tick)、交易时间、仓储费、仓单注销月、是否可转抛(跨期套利)、交割方式(仓库/厂库/车船板)，或新增/更新 all_product_config*.xlsx 配置表时使用。覆盖上期所(SHFE)、能源中心(INE)、大商所(DCE)、郑商所(CZCE)、广期所(GFEX)、中金所(CFFEX)。涉及 TqSdk 字段、国泰君安规则汇总表、各交易所交割细则。也覆盖价差监控(spread_monitor)的盘口合成、合并买卖价、价差比例/仓储费比例/转抛比例等计算口径，以及逐合约手续费/保证金表 futures_comm_info 的维护与更新。
+description: 中国期货全品种交易规则速查与 all_product_config 表维护。当需要查询或核对某期货品种的合约乘数(multiple)、最小变动价位(tick)、交易时间、仓储费、仓单注销月、是否可转抛(跨期套利)、交割方式(仓库/厂库/车船板)，或新增/更新 all_product_config*.xlsx 配置表时使用。覆盖上期所(SHFE)、能源中心(INE)、大商所(DCE)、郑商所(CZCE)、广期所(GFEX)、中金所(CFFEX)。涉及 TqSdk 字段、国泰君安规则汇总表、各交易所交割细则。也覆盖价差监控(spread_monitor)的盘口合成、合并买卖价、价差比例/仓储费比例/转抛比例等计算口径，逐合约手续费/保证金表 futures_comm_info 的维护与更新，以及各品种的季节性需求规律(旺季/淡季/易逼仓合约,如生猪01/甲醇12-2/鸡蛋08/苹果05)。
 ---
 
 # 全品种交易规则与 all_product_config 维护
@@ -14,8 +14,10 @@ description: 中国期货全品种交易规则速查与 all_product_config 表�
 - 仓储费口径（多档取最高、单位、季节性、SH干湿吨等）与逐品种值 → `references/storage-fee.md`
 - 去哪核实每个字段、各交易所官网反爬绕法 → `references/data-sources-and-verification.md`
 - 交易所/品种分类事实（价差合约、仅厂库、车船板、每月注销、长期有效金属等）→ `references/exchange-facts.md`
+- **持仓限额(限仓)**：各所分阶段限仓结构、逐品种数值快照、套利/套保豁免、历史调整案例 → `references/position-limits.md`
 - 价差监控的盘口合成、标签、合并买卖价、价差比例/仓储费比例/转抛比例口径（`spread_monitor.py`）→ `references/spread-monitor-and-ratios.md`
 - 逐合约手续费/保证金表 futures_comm_info 的维护、更新方法、与 all_product 的关系（`futures_comm_info.py`）→ `references/futures-comm-info.md`
+- **品种季节性规律**（旺季/淡季/易逼仓合约，用于研判价差高低是否正常）→ `references/seasonality.md`
 
 ## 核心规则（高频，先记住）
 
@@ -39,6 +41,13 @@ description: 中国期货全品种交易规则速查与 all_product_config 表�
 - 多档（库房/货场、仓库/厂库、新疆/内地、季节）一律**取最高档**，各档写进备注。
 - 单位随合约：多数 元/吨·天；黄金 AU 元/克、白银 AG 元/千克、原油 SC 元/桶、胶合板 BB 元/张、纤维板/原木 FB/LG 元/立方米。
 - 特殊：**SH 烧碱**按干吨口径（约32%纯度，干吨≈湿吨×3）。
+
+### 4. 持仓限额 position limits（要点）
+- 限仓=**单合约投机持仓的单边上限**，分阶段收紧（一般月份→临近交割→交割月）；**个人客户交割月=0**。
+- 一般月份分两种口径：纯绝对手数，或"超阈值按合约单边持仓量×5%/10%"的比例+数额混合。
+- 跨期套利豁免各所不同：**CZCE 套利指令天然可到投机限仓×2（交割月无放大）**；SHFE/INE/DCE/GFEX 需事前申请套利额度/增额。
+- **数值随时期变化极大**（IF 100→5000、铁矿石一般月份 40000→7500），不可写死；引用必须带核对日期，逐所结构与快照见 `references/position-limits.md`。
+- 交易限额（日内开仓量）是并行的独立制度，近月可能比限仓更紧，下单前一并核对。
 
 ## 维护流程（更新/核对时）
 1. **乘数 multiple、tick**：以 TqSdk 实时为准（`query_symbol_info` / `get_quote` 的 `volume_multiple`/`price_tick`），最权威。国君表/其它可能过时。

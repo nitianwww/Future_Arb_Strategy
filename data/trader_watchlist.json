@@ -1,0 +1,29 @@
+{
+ "next_id": 4,
+ "opp_keys": [
+  "ceshi|jm2611-jm2612|long"
+ ],
+ "rows": [
+  {
+   "id": "w1",
+   "kind": "single",
+   "leg_a": "DCE.SP jm2609&jm2610",
+   "leg_b": null,
+   "note": ""
+  },
+  {
+   "id": "w2",
+   "kind": "dual",
+   "leg_a": "DCE.SP jm2610&jm2611",
+   "leg_b": "DCE.SP jm2611&jm2612",
+   "note": ""
+  },
+  {
+   "id": "w3",
+   "kind": "single",
+   "leg_a": "DCE.SP jm2611&jm2612",
+   "leg_b": null,
+   "note": "机会:ceshi"
+  }
+ ]
+}

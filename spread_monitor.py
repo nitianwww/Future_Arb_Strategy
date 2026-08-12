@@ -46,6 +46,18 @@ def code_of(symbol):
     return symbol.split(".", 1)[1] if "." in symbol else symbol
 
 
+_F_RE = None
+
+
+def is_settle_f(symbol):
+    """F结尾的结算价/新标准品合约(如 l2607F)：全系统一律排除（用户决定）。"""
+    global _F_RE
+    if _F_RE is None:
+        import re
+        _F_RE = re.compile(r"\d[Ff]$")
+    return bool(_F_RE.search(code_of(symbol)))
+
+
 def product_of(symbol):
     return "".join(ch for ch in code_of(symbol) if not ch.isdigit())
 
@@ -79,6 +91,8 @@ def parse_combine(symbol):
         prefix, legs = rest.split(" ", 1)
         l1, l2 = legs.split("&")
         f1, f2 = f"{ex}.{l1.strip()}", f"{ex}.{l2.strip()}"
+        if is_settle_f(f1) or is_settle_f(f2):
+            return None            # F结算价合约组合一律排除
         if product_of(f1) != product_of(f2):
             return None
         return ex, prefix, f1, f2
@@ -108,12 +122,91 @@ def load_product_meta(path):
             cancel = set(int(x) for x in ast.literal_eval(str(dm).replace("，", ",")))
         except Exception:
             cancel = set()
+        decay = []
+        if "time_decay" in h:
+            tv = ws.cell(r, h["time_decay"]).value
+            if tv and str(tv).strip():
+                try:
+                    decay = json.loads(str(tv).replace("，", ","))
+                except Exception:
+                    print(f"[警告] {p} time_decay 解析失败: {tv}")
+        ind = ws.cell(r, h["industry_name"]).value if "industry_name" in h else None
         meta[str(p).upper()] = {
             "roll": (str(roll).strip() if roll is not None else ""),
             "fee": (float(fee) if isinstance(fee, (int, float)) else None),
             "cancel": cancel,
+            "decay": decay,
+            "industry": (str(ind).strip() if ind else ""),
         }
     return meta
+
+
+INDEX_PRODUCTS = {"IF", "IC", "IH", "IM"}   # 股指：交割月正常交易
+
+
+def _next_month(ym):
+    y, m = ym // 100, ym % 100
+    return (y + 1) * 100 + 1 if m == 12 else ym + 1
+
+
+def can_roll(near_month, far_month, cancel_set):
+    """月差可转抛 = 区间 [近月, 远月) 内无注销月（近月含，远月为退出点不含）。"""
+    if not cancel_set:
+        return True
+    m = near_month
+    while m < far_month:
+        if (m % 100) in cancel_set:
+            return False
+        m = _next_month(m)
+    return True
+
+
+def in_delivery_month(near_month, product):
+    """近月是否已进交割月（当前月>=合约月）；股指例外。"""
+    if str(product).upper() in INDEX_PRODUCTS:
+        return False
+    cur = datetime.now().year * 100 + datetime.now().month
+    return near_month is not None and near_month <= cur
+
+
+def decay_cost(near_month, far_month, windows, delivery_day=15):
+    """特殊时间贴水成本(元/吨)：持有期[近月交割≈15日, 远月交割≈15日] 与年度贴水窗口的
+    重叠日历天数 × 日贴水。windows=[{"per_day":4,"from":"08-01","to":"11-21"}]，窗口每年重复。
+    例: 郑棉旧棉 N+1年8/1 起每日贴水4元/吨至11月第15交易日(≈11-21)。"""
+    if not windows or not near_month or not far_month:
+        return 0.0
+    from datetime import date
+    try:
+        start = date(near_month // 100, near_month % 100, delivery_day)
+        end = date(far_month // 100, far_month % 100, delivery_day)
+    except Exception:
+        return 0.0
+    total = 0.0
+    for w in windows:
+        if "step" in w:            # 阶梯型: 持有期跨过 step 日期即一次性 +amount (每年重复)
+            try:
+                amt = float(w.get("amount", 0))
+                mm, dd = (int(x) for x in str(w["step"]).split("-"))
+            except Exception:
+                continue
+            for y in range(start.year, end.year + 1):
+                sd = date(y, mm, dd)
+                if start < sd <= end:
+                    total += amt
+            continue
+        try:                       # 每日型: 重叠天数 × per_day
+            per = float(w.get("per_day", 0))
+            fm, fd = (int(x) for x in str(w["from"]).split("-"))
+            tm, td = (int(x) for x in str(w["to"]).split("-"))
+        except Exception:
+            continue
+        for y in range(start.year, end.year + 1):
+            ws_ = date(y, fm, fd)
+            we_ = date(y + 1, tm, td) if (tm, td) < (fm, fd) else date(y, tm, td)
+            o = (min(end, we_) - max(start, ws_)).days
+            if o > 0:
+                total += per * o
+    return round(total, 2)
 
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +222,8 @@ def discover_pairs(api, exchanges, max_months, only_adjacent, products_filter):
         except Exception as e:
             print(f"[警告] query_quotes FUTURE {ex} 失败: {e}"); continue
         for s in syms or []:
+            if is_settle_f(s):
+                continue
             prod = product_of(s)
             if products_filter and prod not in products_filter:
                 continue
@@ -290,6 +385,12 @@ def build_row(p, quotes, meta, tags, rate):
     prod = product_of(p["near"]).upper()
     m = meta.get(prod, {})
     roll = m.get("roll", ""); fee = m.get("fee")
+    # 转抛按具体月份对判定：品种可转抛 且 [近月,远月)无注销月 且 近月未进交割月
+    if str(roll).strip().upper() == "Y":
+        nm, fm = month_key(p["near"]), month_key(p["far"])
+        if nm is None or fm is None or not can_roll(nm, fm, m.get("cancel")) \
+                or in_delivery_month(nm, prod):
+            roll = "N"
     md = month_diff(p["near"], p["far"])
 
     ratio_spread = (None if (last_sp is None or not n_last)
@@ -300,10 +401,11 @@ def build_row(p, quotes, meta, tags, rate):
     #   资金成本 = 1.1 × 近月价 × 资金利率%/100 × 月份差/12
     #   仓储成本 = 仓储费 × 30 × 月份差
     roll_ratio = None
+    dec = decay_cost(month_key(p["near"]), month_key(p["far"]), m.get("decay"))
     if last_sp is not None and md and n_last:
         cap = 1.1 * n_last * (rate / 100.0) * (md / 12.0)
         stor = (fee or 0.0) * 30 * md
-        denom = -(cap + stor)
+        denom = -(cap + stor + dec)          # 含特殊时间贴水(如郑棉旧棉日贴水)
         roll_ratio = round(last_sp / denom, 4) if denom != 0 else None
 
     return {
@@ -321,7 +423,7 @@ def build_row(p, quotes, meta, tags, rate):
         "组合卖价": comb_ask_p, "组合卖量": comb_ask_v, "组合最新": comb_last,
         "卖组合套利": arb_sell_comb, "买组合套利": arb_buy_comb, "最优套利": arb_best,
         # 隐藏字段供 HTML 实时重算转抛比例
-        "_spread": last_sp, "_fee": (fee if fee else 0.0), "_md": md, "_near": n_last,
+        "_spread": last_sp, "_fee": (fee if fee else 0.0), "_md": md, "_near": n_last, "_dec": dec,
     }
 
 
@@ -334,7 +436,7 @@ COLUMNS = [
     "组合买价", "组合买量", "组合卖价", "组合卖量", "组合最新",
     "卖组合套利", "买组合套利", "最优套利",
 ]
-HIDDEN = ["_spread", "_fee", "_md", "_near"]
+HIDDEN = ["_spread", "_fee", "_md", "_near", "_dec"]
 TEXT_COLS = {"交易所", "品种", "转抛", "近月", "近月标签", "远月", "远月标签", "价差合约"}
 
 
@@ -391,7 +493,8 @@ def write_html(df, path, ts, refresh_seconds, default_rate=6.0):
         data = (f" data-spread=\"{_num(r['_spread'])}\""
                 f" data-fee=\"{_num(r['_fee'])}\""
                 f" data-md=\"{_num(r['_md'])}\""
-                f" data-near=\"{_num(r['_near'])}\"")
+                f" data-near=\"{_num(r['_near'])}\""
+                f" data-dec=\"{_num(r['_dec'])}\"")
         tds = []
         for c in cols:
             v = r[c]
@@ -453,6 +556,7 @@ def write_html(df, path, ts, refresh_seconds, default_rate=6.0):
     价差比例% = 最新价差/近月最新×100；仓储费比例 = 最新价差/(−仓储费×30)；
     转抛比例 = 最新价差 / −(1.1×近月价×资金利率%/100×月份差/12 + 仓储费×30×月份差)。
     改"资金利率%"会实时重算转抛比例。点列头排序、可多条件筛选；状态本地保存。绿行=组合与合成存在正套利。
+    转抛列按月份对判定：品种可转抛 且 [近月,远月)区间无注销月 且 近月未进交割月(股指例外)。
   </div>
 <script>
 const CFG = {cfg_js};
@@ -470,9 +574,10 @@ function recalcRoll() {{
   const rate = parseFloat(st.rate) / 100; const ci = CFG.COL["转抛比例"];
   rows().forEach(tr => {{
     const sp = parseFloat(tr.dataset.spread), fee = parseFloat(tr.dataset.fee)||0,
-          md = parseFloat(tr.dataset.md), near = parseFloat(tr.dataset.near);
+          md = parseFloat(tr.dataset.md), near = parseFloat(tr.dataset.near),
+          dec = parseFloat(tr.dataset.dec)||0;
     let val = "";
-    if (!isNaN(sp) && md && !isNaN(near)) {{ const d = -(1.1*near*rate*(md/12) + fee*30*md); if (d !== 0) val = (sp/d).toFixed(4); }}
+    if (!isNaN(sp) && md && !isNaN(near)) {{ const d = -(1.1*near*rate*(md/12) + fee*30*md + dec); if (d !== 0) val = (sp/d).toFixed(4); }}
     tr.children[ci].textContent = val;
   }});
 }}

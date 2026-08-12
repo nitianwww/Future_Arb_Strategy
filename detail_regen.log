@@ -1,0 +1,132 @@
+在使用天勤量化之前，默认您已经知晓并同意以下免责条款，如果不同意请立即停止使用：https://www.shinnytech.com/blog/disclaimer/
+2026-08-12 09:20:11 -     INFO - 通知 : 与 wss://api.shinnytech.com/t/nfmd/front/mobile 的网络连接已建立
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:20:43] P: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\P.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:21:12] B: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\B.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 5, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:21:28] CF: 合约6 价差5 小图5 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\CF.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 10, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:21:55] JM: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\JM.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:22:22] AO: 合约12 价差11 小图11 季节年4 -> I:\BaiduSyncdisk\claude套利\output\detail\AO.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:22:50] ZN: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\ZN.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 3, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:23:16] SI: 合约12 价差11 小图11 季节年5 -> I:\BaiduSyncdisk\claude套利\output\detail\SI.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 5, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:23:31] A: 合约6 价差5 小图5 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\A.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:23:57] PG: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\PG.html
+[自检] 通过(首次基线): {'contracts': 8, 'spreads': 7, 'combos_mapped': 6, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:24:12] Y: 合约8 价差7 小图7 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\Y.html
+[自检] 通过(首次基线): {'contracts': 4, 'spreads': 3, 'combos_mapped': 0, 'no_book': 3}  组合剔除 211/2026(跨品种等)
+[09:24:27] IF: 合约4 价差3 小图3 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\IF.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:24:53] L: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\L.html
+[自检] 通过(首次基线): {'contracts': 4, 'spreads': 3, 'combos_mapped': 0, 'no_book': 3}  组合剔除 211/2026(跨品种等)
+[09:25:08] IM: 合约4 价差3 小图3 季节年5 -> I:\BaiduSyncdisk\claude套利\output\detail\IM.html
+[自检] 通过(首次基线): {'contracts': 4, 'spreads': 3, 'combos_mapped': 0, 'no_book': 3}  组合剔除 211/2026(跨品种等)
+[09:25:30] IH: 合约4 价差3 小图3 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\IH.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:25:57] I: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\I.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:26:24] EG: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\EG.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:26:51] NR: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\NR.html
+[自检] 通过(首次基线): {'contracts': 3, 'spreads': 2, 'combos_mapped': 0, 'no_book': 2}  组合剔除 211/2026(跨品种等)
+[09:27:05] TL: 合约3 价差2 小图2 季节年4 -> I:\BaiduSyncdisk\claude套利\output\detail\TL.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:27:32] FU: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\FU.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:27:59] PP: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\PP.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:28:26] AG: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\AG.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:28:29] MA: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\MA.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:28:55] HC: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\HC.html
+[自检] 通过(首次基线): {'contracts': 4, 'spreads': 3, 'combos_mapped': 0, 'no_book': 3}  组合剔除 211/2026(跨品种等)
+[09:29:12] IC: 合约4 价差3 小图3 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\IC.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:29:38] NI: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\NI.html
+[自检] 通过(首次基线): {'contracts': 8, 'spreads': 7, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:29:53] AU: 合约8 价差7 小图7 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\AU.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:29:56] BC: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\BC.html
+[自检] 通过(首次基线): {'contracts': 14, 'spreads': 13, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:28] SC: 合约14 价差13 小图13 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\SC.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 5, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:30] C: 合约6 价差5 小图5 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\C.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 5, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:33] CS: 合约6 价差5 小图5 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\CS.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:30:35] J: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\J.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:40] V: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\V.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:30:42] FG: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\FG.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:46] SA: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\SA.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:30:48] SH: 合约12 价差11 小图11 季节年4 -> I:\BaiduSyncdisk\claude套利\output\detail\SH.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:54] TA: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\TA.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 3, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:30:57] LC: 合约12 价差11 小图11 季节年4 -> I:\BaiduSyncdisk\claude套利\output\detail\LC.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 3, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:31:04] PS: 合约12 价差11 小图11 季节年3 -> I:\BaiduSyncdisk\claude套利\output\detail\PS.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:31:10] AL: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\AL.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:31:38] CU: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\CU.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:32:07] SN: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\SN.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:32:10] BZ: 合约12 价差11 小图11 季节年2 -> I:\BaiduSyncdisk\claude套利\output\detail\BZ.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:32:13] LU: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\LU.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:32:15] AD: 合约12 价差11 小图11 季节年2 -> I:\BaiduSyncdisk\claude套利\output\detail\AD.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:32:18] BR: 合约12 价差11 小图11 季节年4 -> I:\BaiduSyncdisk\claude套利\output\detail\BR.html
+[自检] 通过(首次基线): {'contracts': 14, 'spreads': 13, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:32:21] BU: 合约14 价差13 小图13 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\BU.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:32:25] OP: 合约12 价差11 小图11 季节年2 -> I:\BaiduSyncdisk\claude套利\output\detail\OP.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:32:41] PB: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\PB.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:32:57] RB: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\RB.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:33:32] SS: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\SS.html
+[自检] 通过(首次基线): {'contracts': 7, 'spreads': 6, 'combos_mapped': 6, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:33:36] RM: 合约7 价差6 小图6 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\RM.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:33:38] PF: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\PF.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:33:41] PR: 合约12 价差11 小图11 季节年3 -> I:\BaiduSyncdisk\claude套利\output\detail\PR.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 3, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:33:55] PD: 合约6 价差5 小图5 季节年2 -> I:\BaiduSyncdisk\claude套利\output\detail\PD.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 3, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:34:10] PT: 合约6 价差5 小图5 季节年2 -> I:\BaiduSyncdisk\claude套利\output\detail\PT.html
+[自检] 通过(首次基线): {'contracts': 10, 'spreads': 9, 'combos_mapped': 0, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:34:12] RU: 合约10 价差9 小图9 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\RU.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 0, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:34:15] SP: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\SP.html
+[自检] 通过(首次基线): {'contracts': 8, 'spreads': 7, 'combos_mapped': 7, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:34:18] M: 合约8 价差7 小图7 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\M.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:34:20] PL: 合约12 价差11 小图11 季节年2 -> I:\BaiduSyncdisk\claude套利\output\detail\PL.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 5, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:34:22] OI: 合约6 价差5 小图5 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\OI.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:34:26] EB: 合约12 价差11 小图11 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\EB.html
+[自检] 通过(首次基线): {'contracts': 6, 'spreads': 5, 'combos_mapped': 5, 'no_book': 0}  组合剔除 211/2026(跨品种等)
+[09:34:29] SR: 合约6 价差5 小图5 季节年7 -> I:\BaiduSyncdisk\claude套利\output\detail\SR.html
+[自检] 通过(首次基线): {'contracts': 12, 'spreads': 11, 'combos_mapped': 11, 'no_book': 1}  组合剔除 211/2026(跨品种等)
+[09:34:33] PX: 合约12 价差11 小图11 季节年4 -> I:\BaiduSyncdisk\claude套利\output\detail\PX.html
+2026-08-12 09:34:33 -     INFO - 模拟交易成交记录, 账户: TQSIM
+2026-08-12 09:34:33 -     INFO - 模拟交易账户资金, 账户: TQSIM
+2026-08-12 09:34:33 -     INFO - 日期: 2026-08-12, 账户权益: 10000000.00, 可用资金: 10000000.00, 浮动盈亏: 0.00, 持仓盈亏: 0.00, 平仓盈亏: 0.00, 市值: 0.00, 保证金: 0.00, 手续费: 0.00, 风险度: 0.00%
+2026-08-12 09:34:33 -     INFO - 胜率: 0.00%, 盈亏额比例: inf, 收益率: 0.00%, 年化收益率: 0.00%, 最大回撤: 0.00%, 年化夏普率: inf,年化索提诺比率: -15.8114
