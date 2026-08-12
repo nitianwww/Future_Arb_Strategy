@@ -328,10 +328,15 @@ def main():
         sc.set_slope_provider(lambda p_: hs.slope_series_cached(api, p_))
         # C类统计缓存预热(独立连接分块)
         cand = set()
+        mainpx = {p: next((c.last for c in cons if c.is_main and c.last), None)
+                  for p, cons in U.by_product.items()}
         for sp_ in U.spreads:
             if sp_.bid is None or sp_.ask is None:
                 continue
-            if any(v is None or v < sc.LIQ_MIN_OI for v in (sp_.near.oi, sp_.far.oi)):
+            # 流动性口径(用户2026-08-12): 价差合成盘口空隙/主力价, 不再看单腿OI
+            g_ = sc.spread_gap(sp_)
+            mp_ = mainpx.get(sp_.near.product)
+            if g_ is None or not mp_ or g_ / mp_ > sc.LIQ_MAX_GAP_RATIO:
                 continue
             mp = (sp_.near.month % 100, sp_.far.month % 100)
             if sp_.adjacent or mp in sc._CYCLE_PAIRS:

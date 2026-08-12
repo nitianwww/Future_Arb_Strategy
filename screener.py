@@ -444,7 +444,19 @@ def _p(strategy, product, key, default=None):
     return d.get(product, {}).get(key, d.get("*", {}).get(key, default))
 
 
-LIQ_MIN_OI = 5000        # 腿持仓量下限；任一腿低于此 -> 低流动性(钓鱼单)
+LIQ_MIN_OI = 5000        # (旧口径,已弃用为过滤条件,仅报告展示参考) 腿持仓量下限
+
+# 流动性新口径(用户2026-08-12): 不再限制单腿OI——远月腿天然低OI会误杀范式二/四的
+# 目标段(V 1-5、J 3-4)。改看**价差合成盘口的空隙**: (买价差-卖价差), 组合合约盘口优先
+# 否则双腿合成, 折算相对主力合约价格的比例; 比例>阈值 或 盘口缺边 → 低流动性(钓鱼)。
+LIQ_MAX_GAP_RATIO = 0.003    # 空隙>主力价0.3% → 钓鱼(可调)
+
+
+def spread_gap(sp: Spread) -> Optional[float]:
+    """价差合成盘口空隙 = 买价差 − 卖价差(ask−bid), 交叉盘口按0; 缺边 → None。"""
+    if sp.bid is None or sp.ask is None:
+        return None
+    return max(0.0, sp.ask - sp.bid)
 
 # A类=纯实时可跑的策略（C类统计策略待历史库）
 A_STRATEGIES = ["折角修复", "主力合约折角修复", "注销月折价", "价差递延",
@@ -1068,10 +1080,13 @@ _CYCLE_PAIRS = {(1, 5), (5, 9), (9, 1)}
 
 
 def _hist_ctx(sp: Spread, min_years=4):
-    """液态 + (相邻或159循环) 的段才做统计（控制历史构建成本）。返回 sby 或 None。"""
+    """液态 + (相邻或159循环) 的段才做统计（控制历史构建成本）。返回 sby 或 None。
+    流动性口径(2026-08-12): 盘口空隙比例, 不再看腿OI; 基准用近月价(abs_price,
+    与主力价同品种同量级, 此处拿不到 U 无法取主力价, 误差可忽略)。"""
     if _HIST is None or sp.mid is None or not _both_sides(sp):
         return None
-    if any(v is None or v < LIQ_MIN_OI for v in (sp.near.oi, sp.far.oi)):
+    g = spread_gap(sp)
+    if g is None or not sp.abs_price or g / sp.abs_price > LIQ_MAX_GAP_RATIO:
         return None
     mp = (sp.near.month % 100, sp.far.month % 100)
     if not (sp.adjacent or mp in _CYCLE_PAIRS):
@@ -1625,6 +1640,7 @@ def _annotate(U: Universe, opps: List[Opportunity]):
     spn = {s.name: s for s in U.spreads}
     bfn = {bf.name: bf for bf in U.butterflies}
     wpc = {}
+    mpx = {}     # 品种主力最新价缓存(盘口空隙比例基准)
 
     def _wp(prod):
         """仓单同期分位缓存: (分位%, 当前值)；无数据/无provider → (None, None)。"""
@@ -1643,9 +1659,10 @@ def _annotate(U: Universe, opps: List[Opportunity]):
         cs = curve_structure(U, o.product)
         o.curve = curve_str(cs)
         o.slope_pctl = cs.get("pctl")
-        legs, span = [], None
+        legs, span, tsps = [], None, []       # tsps = 组成可交易结构的价差段(流动性判定用)
         if o.kind == "spread" and o.structure in spn:
             s = spn[o.structure]; legs = [s.near, s.far]; span = (s.near.month, s.far.month)
+            tsps = [s]
             long_dir = o.direction.startswith("做多") or "买近卖远" in o.direction
             cancel = U.meta.get(o.product, {}).get("cancel", set())
             o.rollable = (long_dir and sm.can_roll(s.near.month, s.far.month, cancel)
@@ -1677,6 +1694,7 @@ def _annotate(U: Universe, opps: List[Opportunity]):
         elif o.kind == "butterfly" and o.structure in bfn:
             b = bfn[o.structure]; legs = [b.front.near, b.front.far, b.back.far]
             span = (b.front.near.month, b.back.far.month)
+            tsps = [b.front, b.back]
         elif o.kind == "butterfly" and o.structure.count("-") == 2:
             # 泛化蝶式(非连续挂牌月, 不在 U.butterflies): 按结构名回查两段
             c0, c1, c2 = o.structure.split("-")
@@ -1684,18 +1702,21 @@ def _annotate(U: Universe, opps: List[Opportunity]):
             if f_ and b_:
                 legs = [f_.near, f_.far, b_.far]
                 span = (f_.near.month, b_.far.month)
+                tsps = [f_, b_]
         elif o.kind == "pair" and " vs " in o.structure:
             n1, n2 = o.structure.split(" vs ")
             s1, s2 = spn.get(n1), spn.get(n2)
             if s1 and s2:
                 legs = [s1.near, s1.far, s2.near, s2.far]
                 span = (min(s1.near.month, s2.near.month), max(s1.far.month, s2.far.month))
+                tsps = [s1, s2]
         elif o.kind == "kink" and " | " in o.structure:
             ss = [spn.get(n) for n in o.structure.split(" | ")]
             if all(ss):
                 legs = [c for s_ in ss for c in (s_.near, s_.far)]
                 span = (min(s_.near.month for s_ in ss), max(s_.far.month for s_ in ss))
                 Bsp = ss[1]                       # 标的段 = 中间段 B
+                tsps = [Bsp]                      # A/C 仅对比不交易, 不进流动性判定
                 o.book = (Bsp.bid, Bsp.bid_vol, Bsp.ask, Bsp.ask_vol)
                 if o.direction.startswith("做多"):
                     cancel = U.meta.get(o.product, {}).get("cancel", set())
@@ -1704,10 +1725,27 @@ def _annotate(U: Universe, opps: List[Opportunity]):
         if legs:
             ois = [c.oi for c in legs]
             min_oi = int(min([v for v in ois if v is not None], default=0))
-            o.conditions["最小腿OI"] = min_oi
-            if any(v is None for v in ois) or min_oi < LIQ_MIN_OI:
+            o.conditions["最小腿OI"] = min_oi    # 仅展示参考, 不再作为过滤条件
+        if tsps:
+            # 流动性新口径(用户2026-08-12): 可交易段合成盘口空隙之和 / 主力价
+            if o.product not in mpx:
+                mpx[o.product] = next((c.last for c in U.by_product.get(o.product, [])
+                                       if c.is_main and c.last), None)
+            main_px = mpx[o.product]
+            gaps = [spread_gap(t) for t in tsps]
+            if any(g is None for g in gaps) or not main_px:
                 o.liquid = False
                 o.flag = o.flag or "低流动性(钓鱼)"
+                o.conditions["盘口空隙"] = "缺边" if any(g is None for g in gaps) else "无主力价"
+            else:
+                gap = sum(gaps)
+                tick = tsps[0].near.tick
+                ratio = gap / main_px
+                o.conditions["盘口空隙"] = (f"{gap / tick:.0f}跳/{ratio * 100:.3f}%"
+                                            if tick else f"{gap:.2f}/{ratio * 100:.3f}%")
+                if ratio > LIQ_MAX_GAP_RATIO:
+                    o.liquid = False
+                    o.flag = o.flag or "低流动性(钓鱼)"
         if span:
             for bm, note in REGIME_BREAKS.get(o.product, []):
                 if span[0] < bm <= span[1]:
